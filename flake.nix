@@ -28,23 +28,27 @@
       });
     in
     {
-      packages = eachSystem (system: {
-        mk-image =
-          let
-            pkgs = nixpkgs.legacyPackages.${system};
-            # FIXME: pass the pinned hercules-ci-agent
-            arionEval = arion.lib.eval {
-              modules = [ ./arion-compose.nix ];
-              inherit pkgs;
-            };
-            exe = (builtins.head arionEval.config.build.imagesToLoad).imageExe;
-            yaml = arionEval.config.out;
-          in
-          pkgs.runCommand "hercules-ci-agent-image" { } ''
-            ln -s ${exe} $out
+      packages = eachSystem (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          arionEval = arion.lib.eval {
+            modules = [
+              ./arion-compose.nix
+              { config.services.hercules.nixos.configuration = hercules-ci-agent.nixosModules.agent-service; }
+            ];
+            inherit pkgs;
+          };
+          exe = (builtins.head arionEval.config.build.imagesToLoad).imageExe;
+          yaml = arionEval.config.out;
+        in
+        {
+          mk-image = pkgs.writeScriptBin "hercules-ci-agent-image" ''
+            ${exe} > image.tar
+            docker load < image.tar
+            ln -fs ${yaml.dockerComposeYaml} docker-compose.yml
           '';
-
-      });
+          yaml = yaml.dockerComposeYaml;
+        });
 
       # just for nix flake show
       nixosConfigurations = lib.mapAttrs (name: value: lib.nixosSystem value) nixosDefinitions;
